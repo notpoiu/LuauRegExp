@@ -3,5 +3,8 @@
     "require_mode": "path",
     "excludes": ["@lune/**"]
   },
-  "generator": "dense"
+  "generator": {
+		"name": "dense",
+		"column_span": 9999999999
+	}
 }
