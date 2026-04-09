@@ -3554,15 +3554,9 @@ do
 
                 if q or isAsciiString(p) then
                     local s = table.create(r)
-                    local t = 7999
 
-                    for u = 1, r, t do
-                        local v = math.min(u + t - 1, r)
-                        local w = {
-                            string.byte(p, u, v),
-                        }
-
-                        table.move(w, 1, #w, u, s)
+                    for t = 1, r do
+                        s[t] = string.byte(p, t)
                     end
 
                     return {

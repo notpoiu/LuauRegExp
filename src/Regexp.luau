@@ -2122,13 +2122,9 @@ local function prepareSubject(text: string, latin1: boolean)
 
 	-- Fast path: for ASCII-only text (common in source code), byte == rune
 	if latin1 or isAsciiString(text) then
-		-- Decode all bytes in one C-level call (up to ~8000 byte chunks to avoid stack overflow)
 		local runes = table.create(len)
-		local chunkSize = 7999
-		for chunkStart = 1, len, chunkSize do
-			local chunkEnd = math.min(chunkStart + chunkSize - 1, len)
-			local bytes = { string.byte(text, chunkStart, chunkEnd) }
-			table.move(bytes, 1, #bytes, chunkStart, runes)
+		for i = 1, len do
+			runes[i] = string.byte(text, i)
 		end
 		return {
 			text = text,
