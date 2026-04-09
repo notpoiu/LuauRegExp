@@ -1,5 +1,6 @@
 local Utf8 = require("./regexp/Utf8")
 local CharClass = require("./regexp/CharClass")
+local NFA = require("./regexp/NFA")
 
 local bit = bit32
 
@@ -2701,12 +2702,40 @@ local EMPTY_CAPTURES = {}
 
 local reusableCtx = { subject = nil, root = nil }
 
+local function nfaSavesToCaptures(saves, numCaptures)
+	if numCaptures == 0 or saves == nil then
+		return EMPTY_CAPTURES
+	end
+	local captures = {}
+	for i = 1, numCaptures do
+		local s = saves[i * 2 - 1]
+		local e = saves[i * 2]
+		if s and e then
+			captures[i] = { startPos = s, endPos = e }
+		end
+	end
+	return captures
+end
+
 local function searchPrepared(re, subject, startPos: number, endPos: number?)
 	local root, err = ensureMatchRoot(re)
 	if root == nil then
 		return nil, err
 	end
 
+	-- Try NFA engine first (handles most patterns, much faster)
+	local program = NFA.compile(root)
+	if program then
+		local prefix = extractLiteralPrefix(root)
+		local mStart, mEnd, mSaves = NFA.search(program, subject, startPos, endPos, prefix or nil)
+		if mStart then
+			local captures = nfaSavesToCaptures(mSaves, root:NumCaptures())
+			return buildMatchResult(root, subject, mStart, mEnd, captures), nil
+		end
+		return nil, nil
+	end
+
+	-- CPS fallback for backreferences, lookaround, atomic groups
 	reusableCtx.subject = subject
 	reusableCtx.root = root
 	local ctx = reusableCtx
@@ -2714,10 +2743,9 @@ local function searchPrepared(re, subject, startPos: number, endPos: number?)
 	local scanEnd = endPos or subject.runeCount + 1
 	local prefix = extractLiteralPrefix(root)
 
-	-- Fast path: use string.find to skip to literal prefix candidates
 	if prefix and subject.isAscii then
 		local text = subject.text
-		local searchFrom = startPos -- for ASCII, byte pos == rune pos
+		local searchFrom = startPos
 		while searchFrom <= scanEnd do
 			local foundByte = string.find(text, prefix, searchFrom, true)
 			if foundByte == nil or foundByte > scanEnd then

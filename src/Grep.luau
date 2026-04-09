@@ -1,4 +1,3 @@
-local fs = require("@lune/fs")
 local Regexp = require("./Regexp")
 
 local Grep = {}
@@ -34,6 +33,15 @@ local DEFAULT_CODE_EXTENSIONS = {
 	[".yaml"] = true,
 	[".yml"] = true,
 }
+
+-- fs is lazy-loaded only when searchPath is called (not available in Roblox)
+local fs = nil
+local function requireFs()
+	if fs == nil then
+		fs = require("@lune/fs")
+	end
+	return fs
+end
 
 local function joinPath(base: string, child: string): string
 	if string.sub(base, -1) == "/" then
@@ -250,7 +258,64 @@ function Grep.searchText(patternOrRegexp, text: string, options)
 	return searchTextByLine(re, text, options)
 end
 
+-- Search an array of in-memory files. Each entry should have:
+--   name: string (identifier, e.g. script path)
+--   source: string (text content to search)
+function Grep.searchFiles(files, patternOrRegexp, options)
+	options = options or {}
+
+	local status = Regexp.newStatus()
+	local re, err = ensureRegexp(patternOrRegexp, options.flags, status)
+	if re == nil then
+		return nil, err
+	end
+
+	local maxMatches = options.maxMatches or math.huge
+	local maxMatchesPerFile = options.maxMatchesPerFile or math.huge
+
+	local results = {}
+	local totalMatches = 0
+	local searchedFiles = 0
+
+	for _, file in ipairs(files) do
+		if totalMatches >= maxMatches then
+			break
+		end
+
+		searchedFiles += 1
+		local remaining = math.min(maxMatchesPerFile, maxMatches - totalMatches)
+		local matches, searchErr = Grep.searchText(re, file.source, {
+			lineMode = options.lineMode,
+			maxMatches = remaining,
+			path = file.name,
+		})
+		if matches == nil then
+			continue
+		end
+		if #matches == 0 then
+			continue
+		end
+
+		table.insert(results, {
+			path = file.name,
+			matchCount = #matches,
+			matches = matches,
+		})
+		totalMatches += #matches
+	end
+
+	return {
+		pattern = re:ToString(),
+		totalMatches = totalMatches,
+		fileCount = #results,
+		searchedFiles = searchedFiles,
+		results = results,
+	}, nil
+end
+
+-- Search a filesystem directory. Requires @lune/fs (not available in Roblox).
 function Grep.searchPath(rootPath: string, patternOrRegexp, options)
+	local lfs = requireFs()
 	options = options or {}
 
 	local status = Regexp.newStatus()
@@ -274,13 +339,13 @@ function Grep.searchPath(rootPath: string, patternOrRegexp, options)
 			return
 		end
 
-		local metadata = fs.metadata(path)
+		local metadata = lfs.metadata(path)
 		if not metadata.exists then
 			return
 		end
 
 		if metadata.kind == "dir" then
-			for _, entry in ipairs(fs.readDir(path)) do
+			for _, entry in ipairs(lfs.readDir(path)) do
 				if not includeHidden and string.sub(entry, 1, 1) == "." then
 					continue
 				end
@@ -298,7 +363,7 @@ function Grep.searchPath(rootPath: string, patternOrRegexp, options)
 
 		searchedFiles += 1
 
-		local ok, text = pcall(fs.readFile, path)
+		local ok, text = pcall(lfs.readFile, path)
 		if not ok then
 			skippedFiles += 1
 			return
