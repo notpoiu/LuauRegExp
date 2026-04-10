@@ -224,6 +224,7 @@ do
             function c.new(e)
                 return setmetatable({
                     ranges = newRangesCopy(e),
+                    _asciiTable = nil,
                 }, c)
             end
             function c.copy(e)
@@ -271,6 +272,7 @@ do
                 end
 
                 e.ranges = h
+                e._asciiTable = nil
 
                 return e
             end
@@ -297,9 +299,38 @@ do
                 end
 
                 e.ranges = g
+                e._asciiTable = nil
 
                 return e
             end
+
+            local function ensureAsciiTable(e)
+                local f = e._asciiTable
+
+                if f ~= nil then
+                    return f
+                end
+
+                f = table.create(128, false)
+
+                for g, h in ipairs(e.ranges)do
+                    if h.lo > 127 then
+                        break
+                    end
+
+                    local i = math.max(h.lo, 0)
+                    local j = math.min(h.hi, 127)
+
+                    for k = i, j do
+                        f[k + 1] = true
+                    end
+                end
+
+                e._asciiTable = f
+
+                return f
+            end
+
             function c.negate(e)
                 local f = c.new()
                 local g = 0
@@ -319,6 +350,10 @@ do
                 return f
             end
             function c.contains(e, f: number): boolean
+                if f >= 0 and f <= 127 then
+                    return ensureAsciiTable(e)[f + 1] == true
+                end
+
                 local g = e.ranges
                 local h = #g
 
@@ -773,6 +808,24 @@ do
                 local K = 1
                 local L = table.create(F, 0)
 
+                local function materializeSaves(M)
+                    if not E or M == nil then
+                        return nil
+                    end
+
+                    local N = table.create(D)
+                    local O = M
+
+                    while O ~= nil do
+                        if N[O.slot] == nil then
+                            N[O.slot] = O.value
+                        end
+
+                        O = O.parent
+                    end
+
+                    return N
+                end
                 local function addThread(M, N, O, P, Q, R)
                     if L[O] == K then
                         return N
@@ -790,9 +843,11 @@ do
                         return addThread(M, N, y[O + 2], P, Q, R)
                     elseif S == k then
                         if E then
-                            local T = Q and table.clone(Q) or {}
-
-                            T[y[O + 1] ] = R
+                            local T = {
+                                parent = Q,
+                                slot = y[O + 1],
+                                value = R,
+                            }
 
                             return addThread(M, N, O + 2, P, T, R)
                         end
@@ -939,7 +994,7 @@ do
                     end
 
                     if M then
-                        return M, N, O
+                        return M, N, materializeSaves(O)
                     end
 
                     return nil
@@ -1015,7 +1070,7 @@ do
                 end
 
                 if M then
-                    return M, N, O
+                    return M, N, materializeSaves(O)
                 end
 
                 return nil
@@ -4139,37 +4194,69 @@ do
                     return r._literalPrefix
                 end
 
-                local s = ''
-                local t = r
+                local function unwrapCaptureShells(s)
+                    while s.kind == 'capture' do
+                        s = s.child
+                    end
 
-                while t.kind == 'capture' do
-                    t = t.child
+                    return s
+                end
+                local function leadingLiteralSequence(s)
+                    s = unwrapCaptureShells(s)
+
+                    if s.kind == 'concat' and s.children and #s.children > 0 then
+                        local t = {}
+
+                        for u, v in ipairs(s.children)do
+                            local w = unwrapCaptureShells(v)
+
+                            if w.kind == 'anchor' or w.kind == 'boundary' or w.kind == 'empty' then
+                                continue
+                            end
+                            if w.kind == 'literal' and not w.fold and w.text and #w.text > 0 then
+                                t[#t + 1] = w.text
+                            else
+                                break
+                            end
+                        end
+
+                        return table.concat(t)
+                    end
+                    if s.kind == 'literal' and not s.fold and s.text and #s.text > 0 then
+                        return s.text
+                    end
+
+                    return ''
+                end
+                local function commonPrefix(s: string, t: string): string
+                    local u = math.min(#s, #t)
+                    local v = 1
+
+                    while v <= u and string.byte(s, v) == string.byte(t, v) do
+                        v += 1
+                    end
+
+                    return string.sub(s, 1, v - 1)
                 end
 
-                if t.kind == 'concat' and t.children and #t.children > 0 then
-                    for u, v in ipairs(t.children)do
-                        local w = v
+                local s = unwrapCaptureShells(r)
+                local t = leadingLiteralSequence(s)
 
-                        while w.kind == 'capture' do
-                            w = w.child
-                        end
+                if #t == 0 and s.kind == 'alt' and s.children and #s.children > 0 then
+                    t = leadingLiteralSequence(s.children[1])
 
-                        if w.kind == 'anchor' or w.kind == 'boundary' or w.kind == 'empty' then
-                            continue
-                        end
-                        if w.kind == 'literal' and not w.fold and w.text and #w.text > 0 then
-                            s = s .. w.text
-                        else
+                    for u = 2, #s.children do
+                        t = commonPrefix(t, leadingLiteralSequence(s.children[u]))
+
+                        if #t == 0 then
                             break
                         end
                     end
-                elseif t.kind == 'literal' and not t.fold and t.text and #t.text > 0 then
-                    s = t.text
                 end
-                if #s == 0 then
+                if #t == 0 then
                     r._literalPrefix = false
                 else
-                    r._literalPrefix = s
+                    r._literalPrefix = t
                 end
 
                 return r._literalPrefix

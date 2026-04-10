@@ -16,6 +16,7 @@ end
 function CharClass.new(ranges)
 	return setmetatable({
 		ranges = newRangesCopy(ranges),
+		_asciiTable = nil,
 	}, CharClass)
 end
 
@@ -51,6 +52,7 @@ function CharClass:addRange(lo: number, hi: number)
 	end
 
 	self.ranges = result
+	self._asciiTable = nil
 	return self
 end
 
@@ -76,7 +78,30 @@ function CharClass:removeAbove(maxRune: number)
 		end
 	end
 	self.ranges = result
+	self._asciiTable = nil
 	return self
+end
+
+local function ensureAsciiTable(self)
+	local tableCache = self._asciiTable
+	if tableCache ~= nil then
+		return tableCache
+	end
+
+	tableCache = table.create(128, false)
+	for _, range in ipairs(self.ranges) do
+		if range.lo > 127 then
+			break
+		end
+		local lo = math.max(range.lo, 0)
+		local hi = math.min(range.hi, 127)
+		for value = lo, hi do
+			tableCache[value + 1] = true
+		end
+	end
+
+	self._asciiTable = tableCache
+	return tableCache
 end
 
 function CharClass:negate()
@@ -95,6 +120,10 @@ function CharClass:negate()
 end
 
 function CharClass:contains(value: number): boolean
+	if value >= 0 and value <= 127 then
+		return ensureAsciiTable(self)[value + 1] == true
+	end
+
 	local ranges = self.ranges
 	local count = #ranges
 

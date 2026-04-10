@@ -394,6 +394,25 @@ local function runMatchEngineTests()
 	end
 
 	do
+		local re = parseOrFail("(?P<lhs>[A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*function", Regexp.LikePerl, "match nfa captures")
+		if re ~= nil then
+			local match, err = re:Search("local alpha = function() end")
+			expectEqual(err, nil, "nfa captures should not error")
+			expectTruthy(match ~= nil, "nfa captures should match")
+			if match ~= nil then
+				expectTruthy(match.captures[1] ~= nil, "nfa capture should exist")
+				if match.captures[1] ~= nil then
+					expectEqual(match.captures[1].text, "alpha", "nfa capture text")
+				end
+				expectTruthy(match.named ~= nil and match.named.lhs ~= nil, "nfa named capture should exist")
+				if match.named ~= nil and match.named.lhs ~= nil then
+					expectEqual(match.named.lhs.text, "alpha", "nfa named capture text")
+				end
+			end
+		end
+	end
+
+	do
 		local re = parseOrFail("foo(?=bar)", Regexp.LikePCRE2, "match lookahead")
 		if re ~= nil then
 			local match = select(1, re:Search("foobar fooqux"))
@@ -444,6 +463,18 @@ local function runMatchEngineTests()
 			expectTruthy(match ~= nil, "simple repeat fast path should match")
 			if match ~= nil then
 				expectEqual(match.text, subject, "simple repeat fast path should consume full subject")
+			end
+		end
+	end
+
+	do
+		local re = parseOrFail("\\buseState\\b|\\buseEffect\\b", Regexp.LikePerl, "match literal prefix alternation")
+		if re ~= nil then
+			local match, err = re:Search("hooks: useEffect(() => {})")
+			expectEqual(err, nil, "literal prefix alternation should not error")
+			expectTruthy(match ~= nil, "literal prefix alternation should match")
+			if match ~= nil then
+				expectEqual(match.text, "useEffect", "literal prefix alternation should match exact branch")
 			end
 		end
 	end

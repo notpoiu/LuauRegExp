@@ -319,6 +319,22 @@ function NFA.search(program, subject, startPos, endPos, literalPrefix)
 	local gen = 1
 	local visited = table.create(codeLen, 0)
 
+	local function materializeSaves(saveNode)
+		if not hasSaves or saveNode == nil then
+			return nil
+		end
+
+		local saves = table.create(numSaves)
+		local current = saveNode
+		while current ~= nil do
+			if saves[current.slot] == nil then
+				saves[current.slot] = current.value
+			end
+			current = current.parent
+		end
+		return saves
+	end
+
 	-- addThread: follow all epsilon transitions from pc, adding consuming/MATCH
 	-- instructions to the thread list. Returns updated list length.
 	local function addThread(list, len, pc, mStart, saves, pos)
@@ -336,8 +352,11 @@ function NFA.search(program, subject, startPos, endPos, literalPrefix)
 			return addThread(list, len, code[pc + 2], mStart, saves, pos)
 		elseif op == OP_SAVE then
 			if hasSaves then
-				local newSaves = saves and table.clone(saves) or {}
-				newSaves[code[pc + 1]] = pos
+				local newSaves = {
+					parent = saves,
+					slot = code[pc + 1],
+					value = pos,
+				}
 				return addThread(list, len, pc + 2, mStart, newSaves, pos)
 			end
 			return addThread(list, len, pc + 2, mStart, saves, pos)
@@ -472,7 +491,7 @@ function NFA.search(program, subject, startPos, endPos, literalPrefix)
 		end
 
 		if bestStart then
-			return bestStart, bestEnd, bestSaves
+			return bestStart, bestEnd, materializeSaves(bestSaves)
 		end
 		return nil
 	end
@@ -549,7 +568,7 @@ function NFA.search(program, subject, startPos, endPos, literalPrefix)
 	end
 
 	if bestStart then
-		return bestStart, bestEnd, bestSaves
+		return bestStart, bestEnd, materializeSaves(bestSaves)
 	end
 	return nil
 end

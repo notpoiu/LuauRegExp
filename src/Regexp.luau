@@ -2658,32 +2658,59 @@ local function extractLiteralPrefix(re)
 		return re._literalPrefix
 	end
 
-	local prefix = ""
-	local current = re
-
-	-- Walk through captures to the inner node
-	while current.kind == "capture" do
-		current = current.child
+	local function unwrapCaptureShells(node)
+		while node.kind == "capture" do
+			node = node.child
+		end
+		return node
 	end
 
-	if current.kind == "concat" and current.children and #current.children > 0 then
-		-- Walk past leading anchors/boundaries, then collect literal children
-		for _, child in ipairs(current.children) do
-			local inner = child
-			while inner.kind == "capture" do
-				inner = inner.child
+	local function leadingLiteralSequence(node)
+		node = unwrapCaptureShells(node)
+
+		if node.kind == "concat" and node.children and #node.children > 0 then
+			local parts = {}
+			for _, child in ipairs(node.children) do
+				local inner = unwrapCaptureShells(child)
+				if inner.kind == "anchor" or inner.kind == "boundary" or inner.kind == "empty" then
+					continue
+				end
+				if inner.kind == "literal" and not inner.fold and inner.text and #inner.text > 0 then
+					parts[#parts + 1] = inner.text
+				else
+					break
+				end
 			end
-			if inner.kind == "anchor" or inner.kind == "boundary" or inner.kind == "empty" then
-				continue
-			end
-			if inner.kind == "literal" and not inner.fold and inner.text and #inner.text > 0 then
-				prefix = prefix .. inner.text
-			else
+			return table.concat(parts)
+		end
+
+		if node.kind == "literal" and not node.fold and node.text and #node.text > 0 then
+			return node.text
+		end
+
+		return ""
+	end
+
+	local function commonPrefix(a: string, b: string): string
+		local limit = math.min(#a, #b)
+		local index = 1
+		while index <= limit and string.byte(a, index) == string.byte(b, index) do
+			index += 1
+		end
+		return string.sub(a, 1, index - 1)
+	end
+
+	local current = unwrapCaptureShells(re)
+	local prefix = leadingLiteralSequence(current)
+
+	if #prefix == 0 and current.kind == "alt" and current.children and #current.children > 0 then
+		prefix = leadingLiteralSequence(current.children[1])
+		for index = 2, #current.children do
+			prefix = commonPrefix(prefix, leadingLiteralSequence(current.children[index]))
+			if #prefix == 0 then
 				break
 			end
 		end
-	elseif current.kind == "literal" and not current.fold and current.text and #current.text > 0 then
-		prefix = current.text
 	end
 
 	if #prefix == 0 then
