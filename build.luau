@@ -27,8 +27,16 @@ if not readable.ok then
 	process.exit(1)
 end
 
--- Report sizes
-local minSize = #fs.readFile("dist/RegExp.luau")
-local readSize = #fs.readFile("dist/RegExp.readable.luau")
-print(string.format("dist/RegExp.luau          %5.1f KB (minified)", minSize / 1024))
-print(string.format("dist/RegExp.readable.luau %5.1f KB (readable)", readSize / 1024))
+local Header = fs.readFile("header.luau")
+
+local minifiedSrc = fs.readFile("dist/RegExp.luau")
+local readableSrc = fs.readFile("dist/RegExp.readable.luau")
+
+minifiedSrc = Header .. minifiedSrc
+readableSrc = Header .. readableSrc
+
+fs.writeFile("dist/RegExp.luau", minifiedSrc)
+fs.writeFile("dist/RegExp.readable.luau", readableSrc)
+
+print(string.format("dist/RegExp.luau          %5.1f KB (minified)", #minifiedSrc / 1024))
+print(string.format("dist/RegExp.readable.luau %5.1f KB (readable)", #readableSrc / 1024))
